@@ -1,0 +1,158 @@
+# =============================================================================
+# DVC Pipeline Configuration
+# =============================================================================
+# This file defines reproducible ML pipelines that DVC tracks and manages.
+# Run: dvc repro
+# =============================================================================
+
+stages:
+  # ---------------------------------------------------------------------------
+  # Stage 1: Data Download (placeholder for API integration)
+  # ---------------------------------------------------------------------------
+  download:
+    cmd: python scripts/download_data.py --config ${config}
+    deps:
+      - scripts/download_data.py
+      - configs/${config}.yaml
+    params:
+      - download.source
+      - download.date_range
+      - download.aoi
+    outs:
+      - data/raw/${config}:
+          cache: true
+          persist: true
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Preprocessing
+  # ---------------------------------------------------------------------------
+  preprocess:
+    cmd: python scripts/preprocess.py --input data/raw --output data/processed
+    deps:
+      - scripts/preprocess.py
+      - eo_pipeline/data/preprocessor.py
+      - data/raw
+    params:
+      - preprocess.tile_size
+      - preprocess.overlap
+      - preprocess.normalize
+    outs:
+      - data/processed/tiles
+      - data/processed/metadata.json
+
+  # ---------------------------------------------------------------------------
+  # Stage 3: Training
+  # ---------------------------------------------------------------------------
+  train_lulc:
+    cmd: >
+      python scripts/train.py 
+        --model lulc 
+        --config configs/train_lulc.yaml
+        --output models/checkpoints/lulc
+    deps:
+      - scripts/train.py
+      - eo_pipeline/models/lulc.py
+      - eo_pipeline/training/trainer.py
+      - data/processed/tiles
+      - configs/train_lulc.yaml
+    params:
+      - training.epochs
+      - training.learning_rate
+      - training.batch_size
+      - model.architecture
+      - model.num_classes
+    outs:
+      - models/checkpoints/lulc/best_model.pt:
+          cache: true
+    metrics:
+      - outputs/metrics/train_lulc.json:
+          cache: false
+    plots:
+      - outputs/plots/lulc_training.csv:
+          x: epoch
+          y: loss
+
+  train_lst:
+    cmd: >
+      python scripts/train.py 
+        --model lst 
+        --config configs/train_lst.yaml
+        --output models/checkpoints/lst
+    deps:
+      - scripts/train.py
+      - eo_pipeline/models/lst.py
+      - eo_pipeline/training/trainer.py
+      - data/processed/tiles
+      - configs/train_lst.yaml
+    params:
+      - training.epochs
+      - training.learning_rate
+    outs:
+      - models/checkpoints/lst/best_model.pt:
+          cache: true
+    metrics:
+      - outputs/metrics/train_lst.json:
+          cache: false
+
+  train_water:
+    cmd: >
+      python scripts/train.py 
+        --model water_quality 
+        --config configs/train_water.yaml
+        --output models/checkpoints/water
+    deps:
+      - scripts/train.py
+      - eo_pipeline/models/water_quality.py
+      - eo_pipeline/training/trainer.py
+      - data/processed/tiles
+      - configs/train_water.yaml
+    outs:
+      - models/checkpoints/water/best_model.pt:
+          cache: true
+    metrics:
+      - outputs/metrics/train_water.json:
+          cache: false
+
+  # ---------------------------------------------------------------------------
+  # Stage 4: Evaluation
+  # ---------------------------------------------------------------------------
+  evaluate:
+    cmd: >
+      python scripts/evaluate.py 
+        --checkpoints models/checkpoints
+        --test-data data/processed/test
+        --output outputs/evaluation
+    deps:
+      - scripts/evaluate.py
+      - eo_pipeline/training/evaluator.py
+      - models/checkpoints
+      - data/processed/test
+    metrics:
+      - outputs/evaluation/metrics.json:
+          cache: false
+    plots:
+      - outputs/evaluation/confusion_matrix.png
+
+  # ---------------------------------------------------------------------------
+  # Stage 5: Export for Production
+  # ---------------------------------------------------------------------------
+  export:
+    cmd: >
+      python scripts/export_model.py 
+        --checkpoint models/checkpoints/lulc/best_model.pt
+        --output models/production/lulc
+        --format onnx
+    deps:
+      - scripts/export_model.py
+      - models/checkpoints/lulc/best_model.pt
+    outs:
+      - models/production/lulc/model.onnx
+
+# =============================================================================
+# Pipeline Visualization:
+#
+#   download -> preprocess -> train_lulc  \
+#                          -> train_lst    -> evaluate -> export
+#                          -> train_water /
+#
+# =============================================================================

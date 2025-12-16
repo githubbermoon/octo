@@ -1,0 +1,81 @@
+# =============================================================================
+# Shared Parameters for DVC Pipeline
+# =============================================================================
+# These parameters are tracked by DVC and trigger pipeline reruns when changed.
+# Reference: dvc.yaml uses ${param.subparam} syntax
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Download Configuration
+# -----------------------------------------------------------------------------
+download:
+  source: sentinel2 # sentinel2, landsat8, landsat9
+  date_range:
+    start: "2023-01-01"
+    end: "2023-12-31"
+  aoi:
+    name: "study_area"
+    bounds: [-122.5, 37.5, -121.5, 38.5] # [west, south, east, north]
+  cloud_cover_max: 20
+
+# -----------------------------------------------------------------------------
+# Preprocessing Configuration
+# -----------------------------------------------------------------------------
+preprocess:
+  tile_size: 256
+  overlap: 32
+  normalize: true
+  augmentation: true
+  bands:
+    sentinel2: [B02, B03, B04, B05, B06, B07, B08, B8A, B11, B12]
+    landsat: [B2, B3, B4, B5, B6, B7, B10]
+
+# -----------------------------------------------------------------------------
+# Model Configuration
+# -----------------------------------------------------------------------------
+model:
+  architecture: unet
+  encoder: resnet34
+  in_channels: 10
+  num_classes: 10
+  dropout: 0.2
+  attention: true
+
+# -----------------------------------------------------------------------------
+# Training Configuration
+# -----------------------------------------------------------------------------
+training:
+  epochs: 100
+  batch_size: 16
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer: adamw
+  scheduler: cosine
+  warmup_epochs: 5
+  early_stopping:
+    patience: 15
+    min_delta: 0.001
+  mixed_precision: true
+  gradient_accumulation: 1
+  seed: 42
+
+# -----------------------------------------------------------------------------
+# Evaluation Configuration
+# -----------------------------------------------------------------------------
+evaluation:
+  metrics:
+    - accuracy
+    - iou
+    - f1
+    - precision
+    - recall
+  per_class: true
+  save_predictions: true
+
+# -----------------------------------------------------------------------------
+# Export Configuration
+# -----------------------------------------------------------------------------
+export:
+  format: onnx
+  optimize: true
+  quantize: false
