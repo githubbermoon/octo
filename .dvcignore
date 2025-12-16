@@ -1,0 +1,26 @@
+# =============================================================================
+# DVC Ignore
+# =============================================================================
+# Files that DVC should not track
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+
+# Temporary
+*.tmp
+*.temp
+*.log
+*.bak
+
+# System
+.DS_Store
+Thumbs.db
+
+# Cache
+.cache/

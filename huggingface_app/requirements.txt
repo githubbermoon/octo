@@ -1,0 +1,26 @@
+# =============================================================================
+# Hugging Face Spaces Requirements
+# =============================================================================
+# Minimal requirements for the Gradio demo
+# Install: pip install -r requirements.txt
+# =============================================================================
+
+# Core
+gradio>=4.10.0
+numpy>=1.24.0
+scipy>=1.10.0
+Pillow>=10.0.0
+
+# Visualization
+matplotlib>=3.7.0
+plotly>=5.18.0
+
+# PyTorch (for model inference)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Optional: Explainable AI
+# Uncomment when adding real XAI functionality
+# shap>=0.43.0
+# lime>=0.2.0
+# captum>=0.6.0
