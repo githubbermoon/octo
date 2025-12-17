@@ -94,24 +94,6 @@ stages:
       - outputs/metrics/train_lst.json:
           cache: false
 
-  train_water:
-    cmd: >
-      python scripts/train.py 
-        --model water_quality 
-        --config configs/train_water.yaml
-        --output models/checkpoints/water
-    deps:
-      - scripts/train.py
-      - eo_pipeline/models/water_quality.py
-      - eo_pipeline/training/trainer.py
-      - data/processed/tiles
-      - configs/train_water.yaml
-    outs:
-      - models/checkpoints/water/best_model.pt:
-          cache: true
-    metrics:
-      - outputs/metrics/train_water.json:
-          cache: false
 
   # ---------------------------------------------------------------------------
   # Stage 4: Evaluation
@@ -153,6 +135,6 @@ stages:
 #
 #   download -> preprocess -> train_lulc  \
 #                          -> train_lst    -> evaluate -> export
-#                          -> train_water /
+#                          -> train_lst    -> evaluate -> export
 #
 # =============================================================================
