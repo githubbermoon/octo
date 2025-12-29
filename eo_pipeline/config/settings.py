@@ -5,11 +5,11 @@ Provides structured configuration for all pipeline components with
 YAML/JSON loading support and environment variable overrides.
 """
 
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any, Union
-from pathlib import Path
 import json
 import logging
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Union
 
 logger = logging.getLogger(__name__)
 
@@ -17,33 +17,34 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DataConfig:
     """Configuration for data loading and preprocessing."""
-    
+
     # Data sources
-    sentinel_hub_client_id: Optional[str] = None
-    sentinel_hub_client_secret: Optional[str] = None
-    gee_service_account: Optional[str] = None
-    gee_key_file: Optional[str] = None
-    
+    sentinel_hub_client_id: str | None = None
+    sentinel_hub_client_secret: str | None = None
+    gee_service_account: str | None = None
+    gee_key_file: str | None = None
+
     # Tile settings
     tile_size_meters: float = 5000.0
     tile_overlap: float = 0.1
-    
+
     # Image settings
     image_size: int = 256
     num_bands: int = 12  # Sentinel-2 has 12 bands typically used
-    
+
     # Temporal settings
     time_steps: int = 4  # For multitemporal analysis
-    
+
     # Preprocessing
     normalize: bool = True
     augment: bool = True
     cloud_mask: bool = True
     cloud_threshold: float = 0.2
-    
+
     # Cache
     cache_dir: str = "./cache"
     use_cache: bool = True
+
 
 
 @dataclass
@@ -58,51 +59,51 @@ class ModelConfig:
     encoder_weights: str = "imagenet"
     in_channels: int = 12
     num_classes: int = 10  # LULC classes
-    
+
     # U-Net specific
-    decoder_channels: List[int] = field(default_factory=lambda: [256, 128, 64, 32, 16])
+    decoder_channels: list[int] = field(default_factory=lambda: [256, 128, 64, 32, 16])
     decoder_attention: bool = True
-    
+
     # Regression output (for LST)
     regression_output: bool = False
     output_range: tuple = (250, 330)  # Kelvin range for LST
 
 
-@dataclass  
+@dataclass
 class TrainingConfig:
     """Configuration for model training."""
-    
+
     # Basic
     epochs: int = 100
     batch_size: int = 16
     learning_rate: float = 1e-4
     weight_decay: float = 1e-4
-    
+
     # Optimizer
     optimizer: str = "adamw"  # adam, adamw, sgd
     scheduler: str = "cosine"  # cosine, step, plateau
     warmup_epochs: int = 5
-    
+
     # Mixed precision
     use_amp: bool = True
-    
+
     # Regularization
     dropout: float = 0.2
     label_smoothing: float = 0.1
-    
+
     # Checkpointing
     checkpoint_dir: str = "./checkpoints"
     save_every_n_epochs: int = 5
     keep_n_checkpoints: int = 3
-    
+
     # Early stopping
     early_stopping: bool = True
     patience: int = 15
     min_delta: float = 1e-4
-    
+
     # Logging
     log_every_n_steps: int = 10
-    
+
     # Reproducibility
     seed: int = 42
 
@@ -111,35 +112,35 @@ class TrainingConfig:
 class Config:
     """
     Master configuration for the EO Pipeline.
-    
+
     Example:
         >>> config = Config.from_yaml("config.yaml")
         >>> config.training.learning_rate = 1e-3
         >>> config.save("config_modified.yaml")
     """
-    
+
     # Project info
     project_name: str = "eo_pipeline"
     experiment_name: str = "default"
-    
+
     # Sub-configs
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
-    
+
     # Paths
     output_dir: str = "./outputs"
     log_dir: str = "./logs"
-    
+
     # Integration flags
     use_wandb: bool = False
     use_dvc: bool = False
-    
+
     # WandB settings
     wandb_project: str = "eo_pipeline"
-    wandb_entity: Optional[str] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
+    wandb_entity: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary."""
         return asdict(self)
     
@@ -154,7 +155,7 @@ class Config:
         logger.info(f"Configuration saved to {path}")
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Config":
+    def from_dict(cls, data: dict[str, Any]) -> "Config":
         """Create config from dictionary."""
         data_config = DataConfig(**data.pop("data", {}))
         model_config = ModelConfig(**data.pop("model", {}))
@@ -206,7 +207,7 @@ class Config:
         if os.getenv("WANDB_ENTITY"):
             self.wandb_entity = os.getenv("WANDB_ENTITY")
     
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """Validate configuration and return list of warnings."""
         warnings = []
         

@@ -4,7 +4,7 @@ A modular PyTorch-based framework for satellite imagery analysis.
 
 Modules:
     - core: Device management, tile/grid system
-    - config: Configuration management  
+    - config: Configuration management
     - data: Data loading and preprocessing
     - indices: Spectral index calculations
     - models: ML models for LULC, LST, water quality
@@ -16,5 +16,5 @@ Modules:
 __version__ = "0.1.0"
 __author__ = "Earth Observation AI Team"
 
-from .core.device import DeviceManager
 from .config.settings import Config
+from .core.device import DeviceManager
