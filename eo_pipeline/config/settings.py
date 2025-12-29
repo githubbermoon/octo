@@ -50,7 +50,7 @@ class DataConfig:
 class ModelConfig:
     """Configuration for model architecture."""
     
-    # Model type: "lulc", "lst", "water_quality"
+    # Model type: "lulc", "lst"
     model_type: str = "lulc"
     
     # Architecture
@@ -131,10 +131,13 @@ class Config:
     output_dir: str = "./outputs"
     log_dir: str = "./logs"
     
-    # Integration flags (not implemented yet)
-    use_mlflow: bool = False
+    # Integration flags
+    use_wandb: bool = False
     use_dvc: bool = False
-    mlflow_tracking_uri: Optional[str] = None
+    
+    # WandB settings
+    wandb_project: str = "eo_pipeline"
+    wandb_entity: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""
@@ -196,10 +199,12 @@ class Config:
         if os.getenv("GEE_KEY_FILE"):
             self.data.gee_key_file = os.getenv("GEE_KEY_FILE")
         
-        # MLFlow from environment
-        if os.getenv("MLFLOW_TRACKING_URI"):
-            self.mlflow_tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
-            self.use_mlflow = True
+        # WandB from environment
+        if os.getenv("WANDB_PROJECT"):
+            self.wandb_project = os.getenv("WANDB_PROJECT")
+            self.use_wandb = True
+        if os.getenv("WANDB_ENTITY"):
+            self.wandb_entity = os.getenv("WANDB_ENTITY")
     
     def validate(self) -> List[str]:
         """Validate configuration and return list of warnings."""

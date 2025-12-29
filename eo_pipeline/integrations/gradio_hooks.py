@@ -132,36 +132,6 @@ class GradioDemo:
         self._interfaces.append(interface_config)
         logger.info("Added LST interface")
     
-    def add_water_quality_interface(self, model=None) -> None:
-        """
-        Add water quality detection interface.
-        
-        Args:
-            model: Water quality model
-        """
-        model = model or self.model
-        
-        interface_config = {
-            "name": "Water Quality",
-            "type": "multi_output",
-            "model": model,
-            # PLACEHOLDER
-            # "interface": gr.Interface(
-            #     fn=self._water_quality_fn(model),
-            #     inputs=gr.Image(type="numpy", label="Satellite Image"),
-            #     outputs=[
-            #         gr.Image(type="numpy", label="Water Mask"),
-            #         gr.Image(type="numpy", label="Turbidity Map"),
-            #         gr.Image(type="numpy", label="Plastic Detection"),
-            #         gr.JSON(label="Quality Metrics")
-            #     ],
-            #     title="Water Quality Analysis",
-            #     description="Analyze water quality and detect pollution"
-            # )
-        }
-        
-        self._interfaces.append(interface_config)
-        logger.info("Added water quality interface")
     
     def add_explainability_interface(
         self,
@@ -300,24 +270,6 @@ class GradioDemo:
         
         return predict
     
-    def _water_quality_fn(self, model) -> Callable:
-        """Create water quality prediction function."""
-        def predict(image: np.ndarray):
-            h, w = image.shape[:2]
-            
-            water_mask = np.random.rand(h, w) > 0.7
-            turbidity = np.random.rand(h, w) * 50 * water_mask
-            plastic = (np.random.rand(h, w) > 0.95) * water_mask
-            
-            metrics = {
-                "water_coverage": float(water_mask.mean()),
-                "avg_turbidity": float(turbidity[water_mask].mean()) if water_mask.any() else 0,
-                "plastic_detected": bool(plastic.any())
-            }
-            
-            return water_mask.astype(np.uint8) * 255, turbidity, plastic.astype(np.uint8) * 255, metrics
-        
-        return predict
     
     def _explain_fn(self, model, explainer_type: str) -> Callable:
         """Create explanation function."""
@@ -350,7 +302,7 @@ Run with: python demo.py
 
 import gradio as gr
 import torch
-from eo_pipeline.models import LULCClassifier, LSTEstimator, WaterQualityDetector
+from eo_pipeline.models import LULCClassifier, LSTEstimator
 from eo_pipeline.core import DeviceManager
 
 # Load models

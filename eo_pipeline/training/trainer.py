@@ -390,8 +390,8 @@ class ModelTrainer:
         
         logger.info(log_str)
         
-        # MLFlow logging placeholder
-        self._log_to_mlflow(epoch, train_loss, val_loss, val_metrics)
+        # External tracking hook
+        self._log_to_tracker(epoch, train_loss, val_loss, val_metrics)
     
     def _save_checkpoint(self, filename: str) -> None:
         """Save training checkpoint."""
@@ -425,7 +425,7 @@ class ModelTrainer:
             checkpoints[0].unlink()
             checkpoints.pop(0)
     
-    def _log_to_mlflow(
+    def _log_to_tracker(
         self,
         epoch: int,
         train_loss: float,
@@ -433,20 +433,11 @@ class ModelTrainer:
         val_metrics: Dict[str, float]
     ) -> None:
         """
-        Log metrics to MLFlow.
+        Log metrics to external tracker (W&B).
         
-        PLACEHOLDER: Implement when MLFlow integration is enabled.
+        This is handled via callbacks in the current design,
+        but we keep this hook for direct integration if needed.
         """
-        # try:
-        #     import mlflow
-        #     
-        #     mlflow.log_metric("train_loss", train_loss, step=epoch)
-        #     if val_loss is not None:
-        #         mlflow.log_metric("val_loss", val_loss, step=epoch)
-        #     for name, value in val_metrics.items():
-        #         mlflow.log_metric(f"val_{name}", value, step=epoch)
-        # except ImportError:
-        #     pass
         pass
     
     def add_callback(self, callback: Callable) -> None:

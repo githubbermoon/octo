@@ -39,7 +39,7 @@ Examples:
     # Train command
     train_parser = subparsers.add_parser("train", help="Train a model")
     train_parser.add_argument("--config", type=str, required=True, help="Config file path")
-    train_parser.add_argument("--model", type=str, choices=["lulc", "lst", "water_quality"], 
+    train_parser.add_argument("--model", type=str, choices=["lulc", "lst"], 
                              default="lulc", help="Model type")
     train_parser.add_argument("--resume", type=str, help="Resume from checkpoint")
     train_parser.add_argument("--output", type=str, default="./outputs", help="Output directory")
@@ -143,9 +143,7 @@ def run_training(args):
     elif args.model == "lst":
         from eo_pipeline.models import LSTEstimator
         model = LSTEstimator(in_channels=config.model.in_channels)
-    elif args.model == "water_quality":
-        from eo_pipeline.models import WaterQualityDetector
-        model = WaterQualityDetector(in_channels=config.model.in_channels)
+
     
     logger.info(f"Model: {model.name}")
     logger.info(f"Parameters: {model.count_parameters():,}")
@@ -193,7 +191,7 @@ def run_demo(args):
     demo = GradioDemo()
     demo.add_segmentation_interface()
     demo.add_lst_interface()
-    demo.add_water_quality_interface()
+
     demo.add_explainability_interface()
     
     url = demo.launch(share=args.share, server_port=args.port)
