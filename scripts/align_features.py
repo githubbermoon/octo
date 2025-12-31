@@ -110,6 +110,56 @@ def group_tiles_by_season(tiles_dir: Path) -> dict[str, list[Path]]:
     return groups
 
 
+def load_tile_bounds(tile_path: Path) -> tuple | None:
+    """Load only bounds from tile (fast, for filtering)."""
+    try:
+        data = np.load(tile_path, allow_pickle=True)
+        bounds = data.get("bounds")
+        if bounds is not None:
+            return tuple(bounds)
+        return None
+    except Exception:
+        return None
+
+
+def bounds_overlap(bounds1: tuple, bounds2: tuple, min_overlap_frac: float = 0.1) -> bool:
+    """
+    Check if two bounding boxes overlap.
+    
+    bounds format: (left, bottom, right, top) in projected coordinates.
+    Returns True if overlap area is at least min_overlap_frac of the smaller box.
+    """
+    if bounds1 is None or bounds2 is None:
+        return False
+    
+    left1, bottom1, right1, top1 = bounds1
+    left2, bottom2, right2, top2 = bounds2
+    
+    # Check for no overlap
+    if right1 <= left2 or right2 <= left1:
+        return False
+    if top1 <= bottom2 or top2 <= bottom1:
+        return False
+    
+    # Compute overlap area
+    overlap_left = max(left1, left2)
+    overlap_right = min(right1, right2)
+    overlap_bottom = max(bottom1, bottom2)
+    overlap_top = min(top1, top2)
+    
+    overlap_area = (overlap_right - overlap_left) * (overlap_top - overlap_bottom)
+    
+    # Compute areas
+    area1 = (right1 - left1) * (top1 - bottom1)
+    area2 = (right2 - left2) * (top2 - bottom2)
+    min_area = min(area1, area2)
+    
+    if min_area <= 0:
+        return False
+    
+    return (overlap_area / min_area) >= min_overlap_frac
+
+
 def load_tile_array(tile_path: Path) -> tuple[np.ndarray, np.ndarray, Any]:
     """Load tile array, bounds, and band names from .npz file."""
     data = np.load(tile_path, allow_pickle=True)
@@ -277,11 +327,20 @@ def align_seasonal_pairs(
         print(f"  S2 tiles: {len(s2_tiles)}")
         print(f"  Landsat tiles: {len(landsat_tiles)}")
         
+        # Pre-load S2 bounds for fast spatial filtering
+        print(f"  Caching S2 bounds...")
+        s2_bounds_cache = {}
+        for s2_path in s2_tiles:
+            bounds = load_tile_bounds(s2_path)
+            if bounds:
+                s2_bounds_cache[s2_path] = bounds
+        print(f"  Cached {len(s2_bounds_cache)} S2 tile bounds")
+        
         # Process each Landsat tile
         for landsat_path in tqdm(landsat_tiles, desc=f"  Aligning {season_key}"):
             try:
                 # Load Landsat tile (target grid)
-                landsat_image, landsat_bounds, _ = load_tile_array(landsat_path)
+                landsat_image, landsat_bounds, landsat_band_names = load_tile_array(landsat_path)
                 
                 if landsat_bounds is None:
                     continue
@@ -289,17 +348,26 @@ def align_seasonal_pairs(
                 target_bounds = tuple(landsat_bounds)
                 target_shape = (landsat_image.shape[1], landsat_image.shape[2])  # (H, W)
                 
-                # Get LST (first band for now)
-                lst = landsat_image[0]
+                # Extract LST band by name (fallback to band 0)
+                lst_idx = 0
+                for i, name in enumerate(landsat_band_names):
+                    name_str = str(name).upper() if name else ""
+                    if "LST" in name_str or "TEMPERATURE" in name_str:
+                        lst_idx = i
+                        break
+                lst = landsat_image[lst_idx]
                 
-                # Find matching S2 tiles that overlap this Landsat tile
-                # For seasonal composite, use ALL S2 tiles in the season
-                matching_s2 = s2_tiles
+                # SPATIAL FILTERING: Find S2 tiles that overlap this Landsat tile
+                matching_s2 = [
+                    s2_path for s2_path, s2_bounds in s2_bounds_cache.items()
+                    if bounds_overlap(target_bounds, s2_bounds, min_overlap_frac=0.1)
+                ]
                 
                 if not matching_s2:
+                    # No overlapping S2 tiles for this Landsat tile
                     continue
                 
-                # Create composite from matching S2 tiles
+                # Create composite from ONLY spatially matching S2 tiles
                 composite = create_seasonal_composite(
                     matching_s2, target_bounds, target_shape
                 )
@@ -331,9 +399,10 @@ def align_seasonal_pairs(
                     season=meta["season"],
                     date=meta["date"],
                     landsat_source=str(landsat_path),
-                    n_s2_scenes=composite["n_scenes"],
+                    n_s2_matched=len(matching_s2),  # S2 tiles that overlapped
+                    n_s2_used=composite["n_scenes"],  # S2 tiles actually used
                     bounds=target_bounds,
-                    alignment_method="seasonal_composite_area_weighted",
+                    alignment_method="spatial_overlap_seasonal_composite",
                 )
                 
                 report["aligned_pairs"] += 1
@@ -342,7 +411,8 @@ def align_seasonal_pairs(
                     "landsat": str(landsat_path),
                     "year": meta["year"],
                     "season": meta["season"],
-                    "n_s2_scenes": composite["n_scenes"],
+                    "n_s2_matched": len(matching_s2),
+                    "n_s2_used": composite["n_scenes"],
                 })
                 
             except Exception as e:
