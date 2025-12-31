@@ -76,10 +76,20 @@ def pick_worldcover_item(bounds: list[float]):
         modifier=planetary_computer.sign_inplace,
     )
     search = catalog.search(collections=["esa-worldcover"], bbox=bounds)
-    items = list(search.get_items())
+    items = list(search.items())  # Updated: items() instead of get_items()
     if not items:
         raise SystemExit("No ESA WorldCover items found for the AOI")
-    items.sort(key=lambda item: item.datetime or item.properties.get("datetime"), reverse=True)
+    
+    # Sort by datetime if available, otherwise by id (for 2020 vs 2021)
+    def sort_key(item):
+        dt = item.datetime or item.properties.get("datetime")
+        if dt:
+            return str(dt)
+        # Fallback: prefer "2021" in id over "2020"
+        return item.id if item.id else ""
+    
+    items.sort(key=sort_key, reverse=True)
+    print(f"Found {len(items)} WorldCover item(s), using: {items[0].id}")
     return items[0]
 
 
