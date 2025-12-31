@@ -295,6 +295,7 @@ def align_seasonal_pairs(
     s2_groups: dict[str, list[Path]],
     landsat_groups: dict[str, list[Path]],
     output_dir: Path,
+    limit: int = 0,  # 0 = no limit
 ) -> dict[str, Any]:
     """
     Align S2 and Landsat tiles by season.
@@ -363,8 +364,12 @@ def align_seasonal_pairs(
                     if bounds_overlap(target_bounds, s2_bounds, min_overlap_frac=0.1)
                 ]
                 
+                # DEBUG: Show how many S2 tiles matched
+                meta = parse_tile_metadata(landsat_path.name)
+                tqdm.write(f"    → Landsat r{meta['row']}_c{meta['col']}: {len(matching_s2)}/{len(s2_bounds_cache)} S2 tiles matched")
+                
                 if not matching_s2:
-                    # No overlapping S2 tiles for this Landsat tile
+                    tqdm.write(f"      ⚠️  No overlapping S2 tiles!")
                     continue
                 
                 # Create composite from ONLY spatially matching S2 tiles
@@ -373,7 +378,10 @@ def align_seasonal_pairs(
                 )
                 
                 if not composite:
+                    tqdm.write(f"      ⚠️  Composite failed!")
                     continue
+                
+                tqdm.write(f"      ✓  Used {composite['n_scenes']}/{len(matching_s2)} S2 tiles in composite")
                 
                 # Create coordinate grids
                 left, bottom, right, top = target_bounds
@@ -415,6 +423,11 @@ def align_seasonal_pairs(
                     "n_s2_used": composite["n_scenes"],
                 })
                 
+                # Check limit
+                if limit > 0 and report["aligned_pairs"] >= limit:
+                    print(f"\n⏹️  Reached limit of {limit} tiles. Stopping early.")
+                    return report
+                
             except Exception as e:
                 print(f"Error processing {landsat_path}: {e}")
                 continue
@@ -436,6 +449,7 @@ def main():
     parser.add_argument("--landsat8-dir", help="Override Landsat-8 tiles directory")
     parser.add_argument("--landsat9-dir", help="Override Landsat-9 tiles directory")
     parser.add_argument("--output", help="Override output directory")
+    parser.add_argument("--limit", type=int, default=0, help="Limit total aligned tiles (0=no limit, for testing)")
     args = parser.parse_args()
     
     # Load config
@@ -487,8 +501,11 @@ def main():
     print(f"\nS2 season-years: {sorted(s2_groups.keys())}")
     print(f"Landsat season-years: {sorted(landsat_groups.keys())}")
     
+    if args.limit > 0:
+        print(f"⚠️  LIMIT MODE: Will stop after {args.limit} tiles")
+    
     # Align
-    report = align_seasonal_pairs(s2_groups, landsat_groups, cfg.output_dir)
+    report = align_seasonal_pairs(s2_groups, landsat_groups, cfg.output_dir, limit=args.limit)
     
     print("\n" + "="*60)
     print("✅ ALIGNMENT COMPLETE")
