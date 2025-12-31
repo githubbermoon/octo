@@ -1,99 +1,62 @@
 # =============================================================================
-# Geospatial AI Project - Requirements
-# =============================================================================
-# Install: pip install -r requirements.txt
-# GPU Support: pip install torch --index-url https://download.pytorch.org/whl/cu121
+# CityGaze: UHI Research Requirements
+# Compatible with: macOS (Silicon) & Linux (Colab/Cloud)
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# Core ML Framework
-# -----------------------------------------------------------------------------
-torch>=2.0.0
-torchvision>=0.15.0
+# --- Core Frameworks ---
+# Note: Colab usually pre-installs these, but good to list for local dev.
+torch>=2.1.0
+torchvision>=0.16.0
 numpy>=1.24.0
-scipy>=1.10.0
+scikit-learn>=1.3.0    # Essential for metrics (F1, IoU)
 
-# -----------------------------------------------------------------------------
-# Geospatial & Remote Sensing
-# -----------------------------------------------------------------------------
-rasterio>=1.3.0
-geopandas>=0.14.0
-shapely>=2.0.0
-pyproj>=3.6.0
-xarray>=2023.10.0
-rioxarray>=0.15.0
 
-# -----------------------------------------------------------------------------
+
 # Image Processing
-# -----------------------------------------------------------------------------
-opencv-python-headless>=4.8.0
-Pillow>=10.0.0
+
 scikit-image>=0.21.0
 
-# -----------------------------------------------------------------------------
-# Data Science & Visualization
-# -----------------------------------------------------------------------------
-pandas>=2.0.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
-plotly>=5.18.0
+# --- Geospatial Stack (The "Abstract" Enablers) ---
+rasterio>=1.3.0        # Reading Satellite Tiffs
+geopandas>=0.14.0      # Handling Shapefiles (Bangalore Wards)
+shapely>=2.0.0         # Geometric operations
+xarray>=2023.10.0      # Handling multi-dimensional weather data
+rioxarray>=0.15.0      # Rasterio extension for xarray
+folium>=0.14.0         # Interactive Maps (for visualization)
+pyproj>=3.6.0          # Coordinate Reference System transformation
 
-# -----------------------------------------------------------------------------
-# MLOps - Experiment Tracking
-# -----------------------------------------------------------------------------
-mlflow>=2.9.0
-optuna>=3.4.0  # Hyperparameter optimization
+# Additional Geospatial Tools
+pystac-client>=0.7.0
+planetary-computer
+meteostat>=1.6.0
 
-# -----------------------------------------------------------------------------
-# MLOps - Data & Model Versioning
-# -----------------------------------------------------------------------------
-dvc>=3.30.0
-dvc-s3>=3.0.0      # S3 remote storage
-dvc-gdrive>=3.0.0  # Google Drive remote
-dvc-gs>=3.0.0      # Google Cloud Storage
+# --- Image Processing ---
+opencv-python-headless>=4.8.0  # Headless is safer for Cloud/Docker
+Pillow>=10.0.0
+albumentations>=1.3.0  # BEST for image augmentation in segmentation tasks
 
-# -----------------------------------------------------------------------------
-# Web Interface
-# -----------------------------------------------------------------------------
+# --- Deep Learning Extras ---
+segmentation-models-pytorch>=0.3.3  # Pre-built U-Nets/DeepLabV3+
+timm>=0.9.0            # PyTorch Image Models (Backbones)
+transformers>=4.35.0   # If using SegFormer or ViT based approaches
+
+# --- MLOps & Tracking (The "Research" Enablers) ---
+wandb>=0.16.0          # Weights & Biases (Replaces Tensorboard/MLflow)
+hydra-core>=1.3.0      # Config management
+omegaconf>=2.3.0       # Config parsing
+typer>=0.9.0           # CLI interface
+
+# --- Utilities ---
+tqdm>=4.65.0           # Progress bars
+python-dotenv>=1.0.0   # Loading API keys (.env)
+matplotlib>=3.7.0      # Static plotting
+scipy>=1.10.0
+
+# --- Web Interface ---
 gradio>=4.10.0
-fastapi>=0.104.0
-uvicorn>=0.24.0
 
-# -----------------------------------------------------------------------------
-# Satellite Data APIs (uncomment when ready)
-# -----------------------------------------------------------------------------
-# sentinelhub>=3.9.0
-# earthengine-api>=0.1.380
-# planetary-computer>=0.5.0
+# Future / Optional
+# torch_geometric
 
-# -----------------------------------------------------------------------------
-# Explainable AI (uncomment for full XAI)
-# -----------------------------------------------------------------------------
-# shap>=0.43.0
-# lime>=0.2.0
-# captum>=0.6.0  # PyTorch XAI
-
-# -----------------------------------------------------------------------------
-# Deep Learning Extras
-# -----------------------------------------------------------------------------
-timm>=0.9.0                        # Pretrained backbones
-segmentation-models-pytorch>=0.3.3 # Segmentation architectures
-albumentations>=1.3.0              # Advanced augmentations
-transformers>=4.35.0               # Hugging Face models
-
-# -----------------------------------------------------------------------------
-# Configuration & Utilities
-# -----------------------------------------------------------------------------
+# Configuration
 pyyaml>=6.0
-python-dotenv>=1.0.0
-hydra-core>=1.3.0    # Advanced config management
-omegaconf>=2.3.0
-tqdm>=4.65.0
-rich>=13.0.0         # Beautiful terminal output
-typer>=0.9.0         # CLI framework
-
-# -----------------------------------------------------------------------------
-# Logging & Monitoring
-# -----------------------------------------------------------------------------
-loguru>=0.7.0
-tensorboard>=2.15.0
