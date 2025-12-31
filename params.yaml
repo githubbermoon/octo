@@ -14,8 +14,8 @@ download:
     start: "2023-01-01"
     end: "2023-12-31"
   aoi:
-    name: "study_area"
-    bounds: [-122.5, 37.5, -121.5, 38.5] # [west, south, east, north]
+    name: "bangalore"
+    bounds: [77.55, 12.90, 77.70, 13.05] # [west, south, east, north] - Bangalore
   cloud_cover_max: 20
 
 # -----------------------------------------------------------------------------
@@ -26,6 +26,8 @@ preprocess:
   overlap: 32
   normalize: true
   augmentation: true
+  min_valid_frac: 0.7
+  clip_percentiles: [2, 98]
   bands:
     sentinel2: [B02, B03, B04, B05, B06, B07, B08, B8A, B11, B12]
     landsat: [B2, B3, B4, B5, B6, B7, B10]
