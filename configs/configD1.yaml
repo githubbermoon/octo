@@ -1,0 +1,155 @@
+# ===============================
+# UHI v1 — Canonical Configuration
+# ===============================
+
+project:
+  name: "Urban Heat Island v1"
+  base_dir: "/content/drive/MyDrive/UHI_Project"
+
+paths:
+  raw_data: "${project.base_dir}/raw_data"
+  worldcover: "${project.base_dir}/raw_data/worldcover/worldcover_2021.tif"
+
+  processed:
+    sentinel2: "${project.base_dir}/processed/sentinel2"
+    landsat8: "${project.base_dir}/processed/landsat8"
+    landsat9: "${project.base_dir}/processed/landsat9"
+    modis: "${project.base_dir}/processed/modis"
+    stacks: "${project.base_dir}/processed/stacks"
+    aligned: "${project.base_dir}/processed/stacks/aligned"
+    tables: "${project.base_dir}/processed/tables"
+
+  models:
+    xgb: "${project.base_dir}/models/xgb"
+    rf: "${project.base_dir}/models/rf"
+    cnn: "${project.base_dir}/models/cnn"
+
+  results:
+    maps: "${project.base_dir}/results/maps"
+    plots: "${project.base_dir}/results/plots"
+
+  validation: "${project.base_dir}/validation"
+  figures: "${project.base_dir}/figures_for_paper"
+
+# -------------------------------
+# Preprocessing configuration
+# -------------------------------
+preprocess:
+  tile_size: 256
+  overlap: 32
+  min_valid_frac: 0.7
+  normalize: true
+  clip_percentiles: [2, 98]
+
+# -------------------------------
+# Spatial configuration
+# -------------------------------
+spatial:
+  crs: "EPSG:32643" # Example: UTM zone (change if needed)
+  base_resolution: 30 # metres
+  grid_size: 30 # modelling grid (m)
+
+# -------------------------------
+# Temporal configuration
+# -------------------------------
+temporal:
+  seasons:
+    summer: [3, 4, 5]
+    winter: [11, 12, 1]
+
+  years: [2020, 2021, 2022, 2023, 2024, 2025]
+
+# -------------------------------
+# Sentinel-2 configuration
+# -------------------------------
+sentinel2:
+  ndvi:
+    nir_band: "B8"
+    red_band: "B4"
+  ndbi:
+    swir_band: "B11"
+    nir_band: "B8"
+
+# -------------------------------
+# Landsat 8/9 configuration
+# -------------------------------
+landsat:
+  ndvi:
+    nir_band: "B5"
+    red_band: "B4"
+  ndbi:
+    swir_band: "B6"
+    nir_band: "B5"
+  lst:
+    product: "L2" # Use Level-2 Surface Temperature
+    unit: "kelvin"
+
+# -------------------------------
+# MODIS configuration
+# -------------------------------
+modis:
+  lst_product: "MOD11A1"
+  resolution: 1000 # metres
+  temporal_aggregation: "seasonal_mean"
+
+# -------------------------------
+# Modeling configuration
+# -------------------------------
+modeling:
+  target: "LST_K"
+
+  features:
+    - NDVI
+    - NDBI
+    - latitude
+    - longitude
+    # NOTE: MODIS_LST is NOT a feature - reserved for validation only!
+
+  xgboost: # PRIMARY BASELINE - fastest, run first
+    n_estimators: 500
+    max_depth: 8
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    random_state: 42
+
+  random_forest: # SHAP INTERPRETABILITY - run second
+    n_estimators: 300
+    max_depth: 20
+    min_samples_leaf: 5
+    random_state: 42
+
+  cnn: # NOVELTY - spatial context, run third
+    input_channels: 12 # Sentinel-2 extended bands (10) + NDVI + NDBI
+    epochs: 30
+    batch_size: 16
+    learning_rate: 0.0001
+
+# -------------------------------
+# Explainability (SHAP)
+# -------------------------------
+explainability:
+  shap:
+    enabled: true
+    model: "random_forest" # SHAP works best with RF
+    n_samples: 1000 # Background samples for SHAP
+    plots:
+      - summary
+      - feature_importance
+      - dependence_ndvi
+      - dependence_ndbi
+
+# -------------------------------
+# Validation
+# -------------------------------
+validation:
+  spatial_cv: true
+  n_folds: 5
+  metrics:
+    - RMSE
+    - R2
+    - MAE
+
+  external:
+    modis_comparison: true # Compare MODIS LST vs Landsat LST trends
+    worldcover_validation: true # Validate LST patterns against land cover
