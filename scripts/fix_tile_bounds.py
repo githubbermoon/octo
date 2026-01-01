@@ -17,6 +17,63 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
+try:
+    from rasterio.transform import array_bounds
+    HAS_RASTERIO = True
+except Exception:
+    HAS_RASTERIO = False
+
+
+def _bounds_from_transform(transform_obj, height: int, width: int) -> tuple | None:
+    """Compute bounds from Affine transform."""
+    if transform_obj is None:
+        return None
+    
+    # Try rasterio first
+    if HAS_RASTERIO:
+        try:
+            # Parse string if needed
+            if isinstance(transform_obj, str):
+                import re
+                from rasterio.transform import Affine
+                numbers = re.findall(r'[-+]?\d*\.?\d+', transform_obj)
+                if len(numbers) >= 6:
+                    transform_obj = Affine(
+                        float(numbers[0]), float(numbers[1]), float(numbers[2]),
+                        float(numbers[3]), float(numbers[4]), float(numbers[5])
+                    )
+            return array_bounds(height, width, transform_obj)
+        except Exception:
+            pass
+    
+    # Manual parsing
+    if hasattr(transform_obj, 'a'):
+        a, b, c = transform_obj.a, transform_obj.b, transform_obj.c
+        d, e, f = transform_obj.d, transform_obj.e, transform_obj.f
+    elif isinstance(transform_obj, str):
+        import re
+        numbers = re.findall(r'[-+]?\d*\.?\d+', transform_obj)
+        if len(numbers) >= 6:
+            a, b, c = float(numbers[0]), float(numbers[1]), float(numbers[2])
+            d, e, f = float(numbers[3]), float(numbers[4]), float(numbers[5])
+        else:
+            return None
+    elif hasattr(transform_obj, '__iter__') and not isinstance(transform_obj, str):
+        vals = list(transform_obj)[:6]
+        if len(vals) < 6:
+            return None
+        a, b, c, d, e, f = vals
+    else:
+        return None
+    
+    left = float(c)
+    top = float(f)
+    right = float(left + width * a)
+    bottom = float(top + height * e)
+    if bottom > top:
+        bottom, top = top, bottom
+    return (left, bottom, right, top)
+
 
 def calculate_tile_bounds(
     scene_transform: tuple,
@@ -85,66 +142,71 @@ def fix_tiles_in_directory(tiles_dir: Path, overwrite: bool = True) -> dict:
             # Load tile
             data = dict(np.load(tile_path, allow_pickle=True))
             
-            # Get transform - handle different storage formats
-            transform_raw = data.get("transform")
-            
-            if transform_raw is None:
-                errors.append(f"{tile_path.name}: no transform")
+            # Get image dimensions
+            image = data.get("image")
+            if image is None:
+                errors.append(f"{tile_path.name}: no image")
                 continue
+            height, width = image.shape[1], image.shape[2]
             
-            # Convert 0-d array to actual object
-            if isinstance(transform_raw, np.ndarray):
-                if transform_raw.ndim == 0:
-                    # 0-d array, extract the item
+            # Try tile_transform first (most accurate)
+            tile_transform_raw = data.get("tile_transform")
+            tile_transform_obj = None
+            if tile_transform_raw is not None:
+                if isinstance(tile_transform_raw, np.ndarray) and tile_transform_raw.ndim == 0:
+                    tile_transform_obj = tile_transform_raw.item()
+                else:
+                    tile_transform_obj = tile_transform_raw
+            
+            new_bounds = None
+            if tile_transform_obj is not None:
+                new_bounds = _bounds_from_transform(tile_transform_obj, height, width)
+            
+            # Fallback: compute from scene transform + row/col
+            if new_bounds is None:
+                transform_raw = data.get("transform")
+                if transform_raw is None:
+                    errors.append(f"{tile_path.name}: no transform")
+                    continue
+                
+                # Extract transform obj
+                if isinstance(transform_raw, np.ndarray) and transform_raw.ndim == 0:
                     transform_obj = transform_raw.item()
                 else:
-                    # 1-d or 2-d array
-                    transform_obj = transform_raw.flatten()[:6]
-            else:
-                transform_obj = transform_raw
-            
-            # Extract transform components
-            if hasattr(transform_obj, 'a'):
-                # It's an Affine object
-                a, b, c = transform_obj.a, transform_obj.b, transform_obj.c
-                d, e, f = transform_obj.d, transform_obj.e, transform_obj.f
-            elif isinstance(transform_obj, str):
-                # Parse string representation of Affine
-                # Format: "| 30.00, 0.00, 776550.00|\n| 0.00,-30.00, 1444230.00|\n| 0.00, 0.00, 1.00|"
+                    transform_obj = transform_raw
+                
+                # Get row/col
+                row_raw = data.get("row", 0)
+                col_raw = data.get("col", 0)
+                row = int(row_raw.item() if isinstance(row_raw, np.ndarray) else row_raw)
+                col = int(col_raw.item() if isinstance(col_raw, np.ndarray) else col_raw)
+                
+                # Parse transform and compute bounds
                 import re
-                numbers = re.findall(r'[-+]?\d*\.?\d+', transform_obj)
-                if len(numbers) >= 6:
-                    a, b, c = float(numbers[0]), float(numbers[1]), float(numbers[2])
-                    d, e, f = float(numbers[3]), float(numbers[4]), float(numbers[5])
+                if isinstance(transform_obj, str):
+                    numbers = re.findall(r'[-+]?\d*\.?\d+', transform_obj)
+                    if len(numbers) >= 6:
+                        a = float(numbers[0])
+                        e = float(numbers[4])
+                        c = float(numbers[2])
+                        f = float(numbers[5])
+                    else:
+                        errors.append(f"{tile_path.name}: could not parse transform")
+                        continue
+                elif hasattr(transform_obj, 'a'):
+                    a, e, c, f = transform_obj.a, transform_obj.e, transform_obj.c, transform_obj.f
                 else:
-                    errors.append(f"{tile_path.name}: could not parse transform string")
+                    errors.append(f"{tile_path.name}: unknown transform type")
                     continue
-            elif hasattr(transform_obj, '__iter__') and not isinstance(transform_obj, str):
-                vals = list(transform_obj)[:6]
-                a, b, c, d, e, f = vals
-            else:
-                # Try to get components from object attributes
-                errors.append(f"{tile_path.name}: unknown transform type: {type(transform_obj)}")
-                continue
+                
+                tile_left = float(c + col * a)
+                tile_top = float(f + row * e)
+                tile_right = float(tile_left + width * a)
+                tile_bottom = float(tile_top + height * e)
+                if tile_bottom > tile_top:
+                    tile_bottom, tile_top = tile_top, tile_bottom
+                new_bounds = (tile_left, tile_bottom, tile_right, tile_top)
             
-            # Get row/col
-            row_raw = data.get("row", 0)
-            col_raw = data.get("col", 0)
-            row = int(row_raw.item() if isinstance(row_raw, np.ndarray) else row_raw)
-            col = int(col_raw.item() if isinstance(col_raw, np.ndarray) else col_raw)
-            
-            # Calculate correct bounds
-            tile_size = 256
-            tile_left = float(c + col * a)
-            tile_top = float(f + row * e)
-            tile_right = float(tile_left + tile_size * a)
-            tile_bottom = float(tile_top + tile_size * e)
-            
-            # Ensure bounds format: (left, bottom, right, top)
-            if tile_bottom > tile_top:
-                tile_bottom, tile_top = tile_top, tile_bottom
-            
-            new_bounds = (tile_left, tile_bottom, tile_right, tile_top)
             old_bounds = tuple(data.get("bounds", []))
             
             # Update bounds
