@@ -20,6 +20,8 @@ from tqdm import tqdm
 
 try:
     import rasterio
+    from rasterio.windows import Window
+    from rasterio.windows import transform as window_transform
 except Exception as exc:  # pragma: no cover - import guard
     raise SystemExit("rasterio is required for preprocessing") from exc
 
@@ -35,9 +37,11 @@ class PreprocessConfig:
     overlap: int = 32
     min_valid_frac: float = 0.7
     normalize: bool = True
+    skip_normalize_lst: bool = True  # Don't normalize LST bands (Landsat)
     clip_percentiles: Tuple[float, float] = (2.0, 98.0)
     max_tiles_per_scene: Optional[int] = None
     dry_run: bool = False
+    debug: bool = False
 
 
 def load_yaml(path: Path) -> Dict[str, Any]:
@@ -181,6 +185,7 @@ def process_scene(
             band_names = [f"B{idx:02d}" for idx in range(1, image.shape[0] + 1)]
 
         tile_count = 0
+        debug_samples = 0
         for row, col in tile_indices(height, width, cfg.tile_size, cfg.overlap):
             tile = image[:, row:row + cfg.tile_size, col:col + cfg.tile_size]
             if tile.shape[1] != cfg.tile_size or tile.shape[2] != cfg.tile_size:
@@ -192,18 +197,43 @@ def process_scene(
                 scene_summary["tiles_skipped"] += 1
                 continue
 
-            if cfg.normalize:
+            # Skip normalization for Landsat LST (temperature should stay in Kelvin)
+            is_landsat = "landsat" in str(path).lower()
+            should_normalize = cfg.normalize and not (is_landsat and cfg.skip_normalize_lst)
+            
+            if should_normalize:
                 tile = normalize_tile(tile, cfg.clip_percentiles)
+            elif cfg.debug and tile_count == 0 and is_landsat:
+                print(f"  [debug] Skipping normalization for Landsat: {path.name}")
 
             tile_id = f"{path.stem}_r{row}_c{col}"
             out_path = tiles_dir / f"{tile_id}.npz"
+            tile_window = Window(col, row, cfg.tile_size, cfg.tile_size)
+            tile_transform = window_transform(tile_window, src.transform)
+            
+            # Compute tile-specific bounds from tile_transform
+            # tile_transform gives origin at (col, row), tile covers tile_size pixels
+            a = tile_transform.a  # pixel width
+            e = tile_transform.e  # pixel height (negative)
+            c = tile_transform.c  # tile left
+            f = tile_transform.f  # tile top
+            tile_left = c
+            tile_top = f
+            tile_right = c + cfg.tile_size * a
+            tile_bottom = f + cfg.tile_size * e
+            if tile_bottom > tile_top:
+                tile_bottom, tile_top = tile_top, tile_bottom
+            tile_bounds = (tile_left, tile_bottom, tile_right, tile_top)
+            
             if not cfg.dry_run:
                 np.savez_compressed(
                     out_path,
                     image=tile.astype(np.float32),
                     transform=str(src.transform),
+                    tile_transform=str(tile_transform),
                     crs=str(src.crs),
-                    bounds=src.bounds,
+                    bounds=np.array(tile_bounds),  # Tile-specific bounds!
+                    scene_bounds=src.bounds,  # Keep scene bounds for reference
                     band_names=band_names,
                     source=str(path),
                     row=row,
@@ -224,6 +254,12 @@ def process_scene(
 
             tile_count += 1
             scene_summary["tiles_written"] += 1
+            if cfg.debug and debug_samples < 3:
+                debug_samples += 1
+                print(
+                    f"[debug] {tile_id} row={row} col={col} "
+                    f"tile_transform={tile_transform}"
+                )
             if cfg.max_tiles_per_scene and tile_count >= cfg.max_tiles_per_scene:
                 break
 
@@ -243,6 +279,7 @@ def main() -> None:
     parser.add_argument("--clip-percentiles", nargs=2, type=float, default=[2.0, 98.0])
     parser.add_argument("--max-tiles-per-scene", type=int, help="Limit tiles per scene")
     parser.add_argument("--dry-run", action="store_true", help="Scan and report only")
+    parser.add_argument("--debug", action="store_true", help="Print debug samples per scene")
     args = parser.parse_args()
 
     config_path = Path(args.config) if args.config else None
@@ -258,6 +295,7 @@ def main() -> None:
     cfg.clip_percentiles = (args.clip_percentiles[0], args.clip_percentiles[1])
     cfg.max_tiles_per_scene = args.max_tiles_per_scene
     cfg.dry_run = args.dry_run
+    cfg.debug = args.debug
 
     tiles_dir = cfg.output_dir / "tiles"
     metadata_path = cfg.output_dir / "metadata.json"
