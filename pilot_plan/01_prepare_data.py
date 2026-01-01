@@ -68,6 +68,29 @@ def prepare_data(
         lon = data['lon'].flatten() if 'lon' in data else np.zeros_like(ndvi)
         bounds = data['bounds']
         
+        # === SAFETY GUARDRAILS ===
+        # These prevent misuse with seasonal union-bound tiles or normalized indices
+        
+        # Assert tile is exactly 256x256 (pilot expects fixed grid)
+        raw_shape = data['ndvi'].shape
+        assert raw_shape == (256, 256), (
+            f"Tile {tile_path.name} has shape {raw_shape}, expected (256, 256). "
+            "This script expects per-date aligned tiles, not seasonal union-bound outputs."
+        )
+        
+        # Assert NDVI/NDBI are in physical range [-1, 1] (not normalized)
+        ndvi_min, ndvi_max = np.nanmin(ndvi), np.nanmax(ndvi)
+        assert -1.0 <= ndvi_min and ndvi_max <= 1.0, (
+            f"NDVI range [{ndvi_min:.3f}, {ndvi_max:.3f}] outside [-1, 1]. "
+            "NDVI may have been incorrectly normalized. Check preprocess.py."
+        )
+        
+        ndbi_min, ndbi_max = np.nanmin(ndbi), np.nanmax(ndbi)
+        assert -1.0 <= ndbi_min and ndbi_max <= 1.0, (
+            f"NDBI range [{ndbi_min:.3f}, {ndbi_max:.3f}] outside [-1, 1]. "
+            "NDBI may have been incorrectly normalized. Check preprocess.py."
+        )
+        
         # Load WorldCover
         try:
             wc = load_worldcover(worldcover_path, tuple(bounds), 256).flatten()

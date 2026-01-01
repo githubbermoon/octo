@@ -2,14 +2,30 @@
 """
 Step 4: Visualize predictions and compute UHI intensity.
 
+⚠️  PILOT SCRIPT WARNING ⚠️
+This script:
+  - Uses HEURISTIC urban/rural masks (NDBI/NDVI thresholds)
+  - Is for PILOT VISUALIZATION ONLY
+  - MUST NOT be used for final UHI reporting
+
+For paper-ready UHI analysis, use WorldCover-based masks in align_seasonal.py outputs.
+
 Usage:
     python pilot_plan/04_visualize_uhi.py --model models/xgb_pilot.json --aligned-dir /path/to/aligned/
 """
 
 import argparse
+import warnings
 from pathlib import Path
 import numpy as np
 import pandas as pd
+
+# Runtime warning on import
+warnings.warn(
+    "04_visualize_uhi.py uses heuristic NDBI/NDVI masks. "
+    "This is for PILOT visualization only. Do NOT use for final UHI reporting.",
+    UserWarning,
+)
 
 try:
     import xgboost as xgb
