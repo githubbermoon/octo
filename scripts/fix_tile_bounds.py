@@ -85,20 +85,55 @@ def fix_tiles_in_directory(tiles_dir: Path, overwrite: bool = True) -> dict:
             # Load tile
             data = dict(np.load(tile_path, allow_pickle=True))
             
-            # Get transform and position
-            transform = data.get("transform")
-            row = int(data.get("row", 0))
-            col = int(data.get("col", 0))
+            # Get transform - handle different storage formats
+            transform_raw = data.get("transform")
             
-            if transform is None:
+            if transform_raw is None:
                 errors.append(f"{tile_path.name}: no transform")
                 continue
             
-            # Calculate correct bounds
-            new_bounds = calculate_tile_bounds(
-                tuple(transform), row, col, tile_size=256
-            )
+            # Convert 0-d array to actual object
+            if isinstance(transform_raw, np.ndarray):
+                if transform_raw.ndim == 0:
+                    # 0-d array, extract the item
+                    transform_obj = transform_raw.item()
+                else:
+                    # 1-d or 2-d array
+                    transform_obj = transform_raw.flatten()[:6]
+            else:
+                transform_obj = transform_raw
             
+            # Extract transform components
+            if hasattr(transform_obj, 'a'):
+                # It's an Affine object
+                a, b, c = transform_obj.a, transform_obj.b, transform_obj.c
+                d, e, f = transform_obj.d, transform_obj.e, transform_obj.f
+            elif hasattr(transform_obj, '__iter__') and not isinstance(transform_obj, str):
+                vals = list(transform_obj)[:6]
+                a, b, c, d, e, f = vals
+            else:
+                # Try to get components from object attributes
+                errors.append(f"{tile_path.name}: unknown transform type: {type(transform_obj)}")
+                continue
+            
+            # Get row/col
+            row_raw = data.get("row", 0)
+            col_raw = data.get("col", 0)
+            row = int(row_raw.item() if isinstance(row_raw, np.ndarray) else row_raw)
+            col = int(col_raw.item() if isinstance(col_raw, np.ndarray) else col_raw)
+            
+            # Calculate correct bounds
+            tile_size = 256
+            tile_left = float(c + col * a)
+            tile_top = float(f + row * e)
+            tile_right = float(tile_left + tile_size * a)
+            tile_bottom = float(tile_top + tile_size * e)
+            
+            # Ensure bounds format: (left, bottom, right, top)
+            if tile_bottom > tile_top:
+                tile_bottom, tile_top = tile_top, tile_bottom
+            
+            new_bounds = (tile_left, tile_bottom, tile_right, tile_top)
             old_bounds = tuple(data.get("bounds", []))
             
             # Update bounds
