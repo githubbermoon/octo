@@ -197,14 +197,42 @@ def process_scene(
                 scene_summary["tiles_skipped"] += 1
                 continue
 
-            # Skip normalization for Landsat LST (temperature should stay in Kelvin)
+            # Normalization rules:
+            # - Landsat: skip ALL (LST should stay in Kelvin)
+            # - Sentinel-2: normalize reflectance bands, but SKIP NDVI/NDBI (indices)
             is_landsat = "landsat" in str(path).lower()
-            should_normalize = cfg.normalize and not (is_landsat and cfg.skip_normalize_lst)
+            is_sentinel2 = "sentinel" in str(path).lower()
             
-            if should_normalize:
+            # Index bands that should NOT be normalized (already bounded physical indices)
+            INDEX_BANDS = {"NDVI", "NDBI", "ndvi", "ndbi"}
+            
+            if is_landsat and cfg.skip_normalize_lst:
+                # Skip all normalization for Landsat
+                if cfg.debug and tile_count == 0:
+                    print(f"  [debug] Skipping normalization for Landsat: {path.name}")
+            elif is_sentinel2 and cfg.normalize:
+                # For Sentinel-2: normalize per-band, but skip NDVI/NDBI
+                tile_normalized = tile.copy()
+                for band_idx, band_name in enumerate(band_names):
+                    if band_name in INDEX_BANDS:
+                        # Keep NDVI/NDBI as-is (physical indices)
+                        if cfg.debug and tile_count == 0:
+                            print(f"  [debug] Skipping normalization for {band_name} (index band)")
+                    else:
+                        # Normalize reflectance bands
+                        band_data = tile[band_idx]
+                        p_low, p_high = cfg.clip_percentiles
+                        valid = band_data[np.isfinite(band_data)]
+                        if len(valid) > 0:
+                            low = np.percentile(valid, p_low)
+                            high = np.percentile(valid, p_high)
+                            if high > low:
+                                clipped = np.clip(band_data, low, high)
+                                tile_normalized[band_idx] = (clipped - low) / (high - low)
+                tile = tile_normalized
+            elif cfg.normalize:
+                # Default: normalize all bands
                 tile = normalize_tile(tile, cfg.clip_percentiles)
-            elif cfg.debug and tile_count == 0 and is_landsat:
-                print(f"  [debug] Skipping normalization for Landsat: {path.name}")
 
             tile_id = f"{path.stem}_r{row}_c{col}"
             out_path = tiles_dir / f"{tile_id}.npz"

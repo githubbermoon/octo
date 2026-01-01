@@ -39,8 +39,9 @@ class AlignConfig:
     landsat8_dir: Path
     landsat9_dir: Path
     output_dir: Path
-    temporal_tolerance_days: int = 45  # Match within season
-    use_seasonal_composite: bool = True  # Aggregate all scenes in a season
+    temporal_tolerance_days: int = 15  # Match S2 within ±N days of Landsat
+    use_temporal_filter: bool = True   # Filter by date proximity
+    use_seasonal_composite: bool = True  # Aggregate scenes
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -87,6 +88,48 @@ def parse_tile_metadata(filename: str) -> dict[str, Any]:
         "row": int(match.group(6)),
         "col": int(match.group(7)),
     }
+
+
+def parse_date(date_str: str):
+    """Parse date string to datetime object."""
+    from datetime import datetime
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d")
+    except:
+        return None
+
+
+def filter_by_temporal_proximity(
+    s2_tiles: list[Path],
+    landsat_date: str,
+    tolerance_days: int = 15,
+) -> list[Path]:
+    """
+    Filter S2 tiles to those within ±tolerance_days of Landsat date.
+    
+    This ensures tighter temporal coupling for NDVI-LST relationships.
+    """
+    from datetime import timedelta
+    
+    target_date = parse_date(landsat_date)
+    if target_date is None:
+        return s2_tiles  # Fallback: no filtering
+    
+    filtered = []
+    for tile_path in s2_tiles:
+        meta = parse_tile_metadata(tile_path.name)
+        if not meta or 'date' not in meta:
+            continue
+        
+        tile_date = parse_date(meta['date'])
+        if tile_date is None:
+            continue
+        
+        delta = abs((tile_date - target_date).days)
+        if delta <= tolerance_days:
+            filtered.append(tile_path)
+    
+    return filtered if filtered else s2_tiles  # Fallback to all if none match
 
 
 def group_tiles_by_season(tiles_dir: Path) -> dict[str, list[Path]]:
@@ -280,9 +323,11 @@ def create_seasonal_composite(tiles: list[Path], target_bounds: tuple, target_sh
     if not ndvi_stack:
         return {}
     
-    # Compute mean composite (ignore NaN)
-    ndvi_composite = np.nanmean(np.stack(ndvi_stack), axis=0)
-    ndbi_composite = np.nanmean(np.stack(ndbi_stack), axis=0)
+    # Compute composites:
+    # - NDVI: max (peak vegetation = clearest, least cloud)
+    # - NDBI: median (robust to SWIR noise and outliers)
+    ndvi_composite = np.nanmax(np.stack(ndvi_stack), axis=0)
+    ndbi_composite = np.nanmedian(np.stack(ndbi_stack), axis=0)
     
     return {
         "ndvi": ndvi_composite,
@@ -364,15 +409,25 @@ def align_seasonal_pairs(
                     if bounds_overlap(target_bounds, s2_bounds, min_overlap_frac=0.1)
                 ]
                 
-                # DEBUG: Show how many S2 tiles matched
+                # DEBUG: Show how many S2 tiles matched spatially
                 meta = parse_tile_metadata(landsat_path.name)
-                tqdm.write(f"    → Landsat r{meta['row']}_c{meta['col']}: {len(matching_s2)}/{len(s2_bounds_cache)} S2 tiles matched")
+                landsat_date = meta.get('date', '')
+                n_spatial = len(matching_s2)
+                
+                # TEMPORAL FILTERING: Keep only S2 tiles within ±N days of Landsat date
+                # This is critical for accurate NDVI-LST coupling
+                matching_s2 = filter_by_temporal_proximity(
+                    matching_s2, landsat_date, tolerance_days=15
+                )
+                n_temporal = len(matching_s2)
+                
+                tqdm.write(f"    → Landsat r{meta['row']}_c{meta['col']} ({landsat_date}): {n_spatial} spatial → {n_temporal} temporal S2 tiles")
                 
                 if not matching_s2:
-                    tqdm.write(f"      ⚠️  No overlapping S2 tiles!")
+                    tqdm.write(f"      ⚠️  No S2 tiles within ±15 days!")
                     continue
                 
-                # Create composite from ONLY spatially matching S2 tiles
+                # Create composite from spatially + temporally matching S2 tiles
                 composite = create_seasonal_composite(
                     matching_s2, target_bounds, target_shape
                 )
@@ -381,7 +436,7 @@ def align_seasonal_pairs(
                     tqdm.write(f"      ⚠️  Composite failed!")
                     continue
                 
-                tqdm.write(f"      ✓  Used {composite['n_scenes']}/{len(matching_s2)} S2 tiles in composite")
+                tqdm.write(f"      ✓  Used {composite['n_scenes']}/{n_temporal} S2 tiles in composite")
                 
                 # Create coordinate grids
                 left, bottom, right, top = target_bounds

@@ -47,26 +47,51 @@ def train_xgboost(
     X = df[available_features]
     y = df[target_col]
     
-    # Split data
+    # Split data - SPATIAL BLOCK CV to prevent spatial leakage
     if spatial_split and 'tile' in df.columns:
-        # Use one tile for validation (spatial split)
         tiles = df['tile'].unique()
-        print(f"Tiles: {list(tiles)}")
+        n_tiles = len(tiles)
+        print(f"Tiles for spatial split: {n_tiles}")
         
-        if len(tiles) >= 2:
-            val_tile = tiles[-1]  # Last tile for validation
+        if n_tiles >= 3:
+            # Proper spatial block CV with GroupKFold
+            try:
+                from sklearn.model_selection import GroupKFold
+                
+                # Use tiles as groups - prevents spatial leakage
+                groups = df['tile']
+                gkf = GroupKFold(n_splits=min(n_tiles, 3))  # 3-fold or fewer if less tiles
+                
+                # Get train/val split (first fold for simple training)
+                for train_idx, val_idx in gkf.split(X, y, groups):
+                    X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+                    y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+                    val_tiles = df.iloc[val_idx]['tile'].unique()
+                    print(f"Spatial Block CV: train on {len(X_train):,}, validate on {len(X_val):,}")
+                    print(f"  Val tiles: {list(val_tiles)}")
+                    break  # Use first fold for pilot
+                    
+            except ImportError:
+                # Fallback: simple tile-based split
+                val_tile = tiles[-1]
+                train_mask = df['tile'] != val_tile
+                X_train, X_val = X[train_mask], X[~train_mask]
+                y_train, y_val = y[train_mask], y[~train_mask]
+                print(f"Simple spatial split (GroupKFold unavailable)")
+        elif n_tiles >= 2:
+            # Simple tile-based split
+            val_tile = tiles[-1]
             train_mask = df['tile'] != val_tile
-            
-            X_train = X[train_mask]
-            y_train = y[train_mask]
-            X_val = X[~train_mask]
-            y_val = y[~train_mask]
+            X_train, X_val = X[train_mask], X[~train_mask]
+            y_train, y_val = y[train_mask], y[~train_mask]
             print(f"Spatial split: train on {len(X_train):,}, validate on {len(X_val):,} ({val_tile})")
         else:
             # Random split if only 1 tile
             X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=test_size, random_state=42)
+            print("⚠️  Only 1 tile - using random split (spatial leakage possible)")
     else:
         X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=test_size, random_state=42)
+        print("⚠️  No tile info - using random split (spatial leakage possible)")
     
     print(f"\nTrain: {len(X_train):,} samples")
     print(f"Val:   {len(X_val):,} samples")
