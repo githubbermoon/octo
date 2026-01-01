@@ -262,8 +262,8 @@ def resample_to_target_grid(
     src_transform = from_bounds(*source_bounds, src_width, src_height)
     dst_transform = from_bounds(*target_bounds, dst_width, dst_height)
     
-    # Prepare output
-    destination = np.empty(target_shape, dtype=np.float32)
+    # CRITICAL: Use NaN fill instead of zeros
+    destination = np.full(target_shape, np.nan, dtype=np.float32)
     
     # Resampling method
     if resampling_method == "average":
@@ -273,7 +273,7 @@ def resample_to_target_grid(
     else:
         method = Resampling.nearest
     
-    # Reproject
+    # Reproject with nodata handling
     reproject(
         source=source.astype(np.float32),
         destination=destination,
@@ -282,6 +282,8 @@ def resample_to_target_grid(
         dst_transform=dst_transform,
         dst_crs="EPSG:32643",
         resampling=method,
+        src_nodata=np.nan,
+        dst_nodata=np.nan,
     )
     
     return destination
