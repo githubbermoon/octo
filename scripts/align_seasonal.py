@@ -199,7 +199,7 @@ def create_s2_seasonal_composite(
     
     # Aggregate: max for NDVI, median for NDBI
     ndvi_composite = np.nanmax(np.stack(ndvi_stack), axis=0)
-    ndbi_composite = np.nanmedian(np.stack(ndvi_stack), axis=0)
+    ndbi_composite = np.nanmedian(np.stack(ndbi_stack), axis=0)
     
     return {
         "ndvi": ndvi_composite,
@@ -241,7 +241,10 @@ def create_lst_seasonal_composite(
                     lst_idx = i
                     break
             
-            lst = image[lst_idx]
+            lst = image[lst_idx].astype(np.float32)
+            
+            # Convert zeros to NaN (missing data)
+            lst = np.where(lst == 0, np.nan, lst)
             
             # Resample to target grid
             lst_resampled = resample_to_target_grid(lst, bounds, target_bounds, target_shape)
