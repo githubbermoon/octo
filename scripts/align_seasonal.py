@@ -286,7 +286,7 @@ def resample_to_target_grid(
     dst_shape: tuple,
     method: str = "average",
 ) -> np.ndarray:
-    """Resample source array to target grid."""
+    """Resample source array to target grid with NaN fill for nodata."""
     if not HAS_RASTERIO:
         raise RuntimeError("rasterio required for resampling")
     
@@ -296,18 +296,24 @@ def resample_to_target_grid(
     dst_height, dst_width = dst_shape
     dst_transform = from_bounds(*dst_bounds, dst_width, dst_height)
     
-    destination = np.empty(dst_shape, dtype=np.float32)
+    # CRITICAL: Use NaN fill instead of zeros to prevent composite collapse
+    destination = np.full(dst_shape, np.nan, dtype=np.float32)
     
     resampling = Resampling.average if method == "average" else Resampling.bilinear
     
+    # Convert source NaN to nodata value for reproject
+    source_float = source.astype(np.float32)
+    
     reproject(
-        source=source.astype(np.float32),
+        source=source_float,
         destination=destination,
         src_transform=src_transform,
         src_crs="EPSG:32643",
         dst_transform=dst_transform,
         dst_crs="EPSG:32643",
         resampling=resampling,
+        src_nodata=np.nan,
+        dst_nodata=np.nan,
     )
     
     return destination
@@ -477,7 +483,18 @@ def align_seasonal(
                 all_landsat_bounds.append(b)
         
         target_bounds = get_union_bounds(all_landsat_bounds) if all_landsat_bounds else first_bounds
-        target_shape = (cfg.tile_size, cfg.tile_size)
+        
+        # Calculate proper grid size based on 30m resolution (not fixed 256x256)
+        left, bottom, right, top = target_bounds
+        pixel_size = 30.0  # metres
+        width = int(round((right - left) / pixel_size))
+        height = int(round((top - bottom) / pixel_size))
+        # Clamp to reasonable size
+        width = min(max(width, 64), 2048)
+        height = min(max(height, 64), 2048)
+        target_shape = (height, width)
+        
+        print(f"  Target grid: {width}x{height} pixels ({pixel_size}m resolution)")
         
         # Create S2 composite (NDVI max, NDBI median)
         s2_result = create_s2_seasonal_composite(s2_tiles, target_bounds, target_shape)
