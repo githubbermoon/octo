@@ -203,21 +203,54 @@ def process_scene(
             is_landsat = "landsat" in str(path).lower()
             is_sentinel2 = "sentinel" in str(path).lower()
             
-            # Index bands that should NOT be normalized (already bounded physical indices)
-            INDEX_BANDS = {"NDVI", "NDBI", "ndvi", "ndbi"}
-            
             if is_landsat and cfg.skip_normalize_lst:
                 # Skip all normalization for Landsat
                 if cfg.debug and tile_count == 0:
                     print(f"  [debug] Skipping normalization for Landsat: {path.name}")
             elif is_sentinel2 and cfg.normalize:
                 # For Sentinel-2: normalize per-band, but skip NDVI/NDBI
+                # 
+                # HARDENED DETECTION: Normalize band names to handle:
+                #   - None, bytes, whitespace, casing variations
+                #
+                normalized_names = []
+                for name in band_names:
+                    if name is None:
+                        normalized_names.append("")
+                    elif isinstance(name, bytes):
+                        normalized_names.append(name.decode("utf-8", errors="ignore").strip().upper())
+                    else:
+                        normalized_names.append(str(name).strip().upper())
+                
+                # Explicitly detect NDVI/NDBI indices
+                ndvi_idx = None
+                ndbi_idx = None
+                for i, name in enumerate(normalized_names):
+                    if name == "NDVI":
+                        ndvi_idx = i
+                    elif name == "NDBI":
+                        ndbi_idx = i
+                
+                # Fallback: assume last two bands are NDVI, NDBI (with warning)
+                if ndvi_idx is None or ndbi_idx is None:
+                    import warnings
+                    warnings.warn(
+                        f"NDVI/NDBI band names not found in {path.name}; "
+                        f"falling back to last two bands (indices {tile.shape[0]-2}, {tile.shape[0]-1}). "
+                        "Verify band order!"
+                    )
+                    ndvi_idx = tile.shape[0] - 2
+                    ndbi_idx = tile.shape[0] - 1
+                
+                # Set of index bands to skip
+                skip_indices = {ndvi_idx, ndbi_idx}
+                
                 tile_normalized = tile.copy()
-                for band_idx, band_name in enumerate(band_names):
-                    if band_name in INDEX_BANDS:
-                        # Keep NDVI/NDBI as-is (physical indices)
+                for band_idx in range(tile.shape[0]):
+                    if band_idx in skip_indices:
+                        # Keep NDVI/NDBI as-is (physical indices in [-1, 1])
                         if cfg.debug and tile_count == 0:
-                            print(f"  [debug] Skipping normalization for {band_name} (index band)")
+                            print(f"  [debug] Skipping normalization for band {band_idx} ({normalized_names[band_idx] or 'index'})")
                     else:
                         # Normalize reflectance bands
                         band_data = tile[band_idx]
