@@ -108,6 +108,17 @@ def fix_tiles_in_directory(tiles_dir: Path, overwrite: bool = True) -> dict:
                 # It's an Affine object
                 a, b, c = transform_obj.a, transform_obj.b, transform_obj.c
                 d, e, f = transform_obj.d, transform_obj.e, transform_obj.f
+            elif isinstance(transform_obj, str):
+                # Parse string representation of Affine
+                # Format: "| 30.00, 0.00, 776550.00|\n| 0.00,-30.00, 1444230.00|\n| 0.00, 0.00, 1.00|"
+                import re
+                numbers = re.findall(r'[-+]?\d*\.?\d+', transform_obj)
+                if len(numbers) >= 6:
+                    a, b, c = float(numbers[0]), float(numbers[1]), float(numbers[2])
+                    d, e, f = float(numbers[3]), float(numbers[4]), float(numbers[5])
+                else:
+                    errors.append(f"{tile_path.name}: could not parse transform string")
+                    continue
             elif hasattr(transform_obj, '__iter__') and not isinstance(transform_obj, str):
                 vals = list(transform_obj)[:6]
                 a, b, c, d, e, f = vals
