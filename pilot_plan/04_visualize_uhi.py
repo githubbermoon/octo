@@ -93,8 +93,9 @@ def visualize_predictions(
         print("No tiles found!")
         return {}
     
-    # Use last tile (validation tile)
-    tile_path = tiles[-1]
+    # Prefer summer tile for visualization (more interesting UHI patterns)
+    summer_tiles = [t for t in tiles if 'summer' in t.name.lower()]
+    tile_path = summer_tiles[0] if summer_tiles else tiles[0]
     print(f"Visualizing: {tile_path.name}")
     
     # Load tile
