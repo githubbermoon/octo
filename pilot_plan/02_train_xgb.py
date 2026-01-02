@@ -37,7 +37,7 @@ def train_xgboost(
     print(f"Loaded {len(df):,} rows from {data_path}")
     
     # Features and target
-    feature_cols = ['ndvi', 'ndbi', 'lat', 'lon', 'is_urban', 'is_water', 'is_vegetation']
+    feature_cols = ['ndvi', 'ndbi', 'lat', 'lon', 'is_urban', 'is_water', 'is_vegetation', 'is_summer']
     target_col = 'lst_c'  # Celsius
     
     # Check which features are available

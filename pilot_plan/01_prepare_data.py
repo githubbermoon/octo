@@ -98,6 +98,10 @@ def prepare_data(
             print(f"  Warning: Could not load WorldCover for {tile_path.name}: {e}")
             wc = np.zeros_like(ndvi, dtype=np.uint8)
         
+        # Extract season from tile name (e.g., "2020_summer_..." -> 1, "2020_winter_..." -> 0)
+        tile_name = tile_path.stem
+        is_summer = 1 if 'summer' in tile_name.lower() else 0
+        
         # Create DataFrame for this tile
         tile_df = pd.DataFrame({
             'ndvi': ndvi,
@@ -109,7 +113,8 @@ def prepare_data(
             'is_urban': (wc == 50).astype(int),
             'is_water': (wc == 80).astype(int),
             'is_vegetation': ((wc == 10) | (wc == 20) | (wc == 30) | (wc == 40)).astype(int),
-            'tile': tile_path.stem,
+            'is_summer': is_summer,
+            'tile': tile_name,
         })
         
         # Remove NaN rows
