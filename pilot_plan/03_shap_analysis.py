@@ -39,8 +39,8 @@ def shap_analysis(
     # Load data
     df = pd.read_csv(data_path)
     
-    # Features
-    feature_cols = ['ndvi', 'ndbi', 'lat', 'lon', 'is_urban', 'is_water', 'is_vegetation']
+    # Features (must match training features)
+    feature_cols = ['ndvi', 'ndbi', 'lat', 'lon', 'is_urban', 'is_water', 'is_vegetation', 'is_summer']
     available_features = [c for c in feature_cols if c in df.columns]
     
     X = df[available_features]

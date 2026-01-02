@@ -53,6 +53,11 @@ def load_tile_features(tile_path: Path) -> tuple:
     
     # Create feature array (flat)
     shape = ndvi.shape
+    
+    # Extract season from tile name
+    tile_name = str(tile_path.stem).lower()
+    is_summer = 1 if 'summer' in tile_name else 0
+    
     features = pd.DataFrame({
         'ndvi': ndvi.flatten(),
         'ndbi': ndbi.flatten(),
@@ -61,6 +66,7 @@ def load_tile_features(tile_path: Path) -> tuple:
         'is_urban': np.zeros(ndvi.size),  # Will be filled if WorldCover available
         'is_water': np.zeros(ndvi.size),
         'is_vegetation': np.zeros(ndvi.size),
+        'is_summer': np.full(ndvi.size, is_summer),
     })
     
     return features, lst, shape
@@ -101,7 +107,7 @@ def visualize_predictions(
     features, _, shape = load_tile_features(tile_path)
     
     # Predict
-    available_features = ['ndvi', 'ndbi', 'lat', 'lon', 'is_urban', 'is_water', 'is_vegetation']
+    available_features = ['ndvi', 'ndbi', 'lat', 'lon', 'is_urban', 'is_water', 'is_vegetation', 'is_summer']
     X = features[[c for c in available_features if c in features.columns]]
     
     # Handle NaN
