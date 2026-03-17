@@ -37,6 +37,7 @@ class ValidationConfig:
     landsat_dir: Path
     predictions_dir: Path
     output_dir: Path
+    model_path: Path
     worldcover_path: Optional[Path] = None  # ESA WorldCover GeoTIFF
     ndbi_urban_threshold: float = 0.1  # Fallback: NDBI > 0.1 = urban
     test_split_ratio: float = 0.1
@@ -62,6 +63,8 @@ def load_config(config_path: Path) -> ValidationConfig:
         landsat_dir=base_dir / "processed",
         predictions_dir=base_dir / "processed" / "stacks" / "aligned",
         output_dir=base_dir / "validation",
+        model_path=base_dir / "models" / "xgb_pilot.json",
+        worldcover_path=base_dir / "raw_data" / "worldcover" / "worldcover_2021.tif",
     )
 
 
@@ -115,18 +118,38 @@ def compute_pixel_metrics(
 
 def level1_pixel_validation(
     aligned_tiles: List[Path],
+    model_path: Path,
+    worldcover_path: Optional[Path] = None,
+    ndbi_threshold: float = 0.1,
     test_ratio: float = 0.1,
     output_dir: Path = None,
 ) -> Dict[str, Any]:
     """
     Level 1: Pixel-wise validation using Landsat test split.
     
-    Uses the aligned tiles (which contain both features and LST target).
-    Splits into train/test and computes metrics on test set.
+    Uses aligned tiles for hold-out evaluation with a trained XGBoost model.
+    Model is trained on Celsius target (`lst_c`), so predictions are converted
+    back to Kelvin before metric computation against Landsat LST.
     """
     print("\n" + "="*60)
     print("LEVEL 1: Pixel-Wise Validation (Landsat Hold-out)")
     print("="*60)
+
+    # Load trained model
+    try:
+        import xgboost as xgb
+    except ImportError:
+        print("xgboost not installed. Install xgboost to run Level 1 model-based validation.")
+        return {"error": "xgboost not installed"}
+
+    model_path = Path(model_path)
+    if not model_path.exists():
+        print(f"Model not found: {model_path}")
+        return {"error": f"Model not found: {model_path}"}
+
+    model = xgb.XGBRegressor()
+    model.load_model(str(model_path))
+    print(f"Loaded model: {model_path}")
     
     # Shuffle and split tiles
     np.random.seed(42)
@@ -147,21 +170,84 @@ def level1_pixel_validation(
     for tile_path in tqdm(test_tiles, desc="Loading test tiles"):
         try:
             data = np.load(tile_path, allow_pickle=True)
-            
-            # In aligned tiles, we have NDVI, NDBI, lat, lon as features
-            # and LST as target. For now, we compare against LST directly.
-            # In production, this would use model predictions.
-            
-            lst = data.get("lst")
-            if lst is not None:
-                # For demonstration: use a simple baseline (NDBI-based estimate)
-                ndbi = data.get("ndbi")
-                if ndbi is not None:
-                    # Simple linear model: LST ≈ A*NDBI + B (placeholder)
-                    # In real use, load actual model predictions
-                    baseline_pred = 300 + 20 * ndbi  # Dummy baseline
-                    all_pred.append(baseline_pred.flatten())
-                    all_gt.append(lst.flatten())
+
+            if "ndvi" not in data.files or "ndbi" not in data.files or "lst" not in data.files:
+                continue
+
+            ndvi = data["ndvi"].astype(np.float32)
+            ndbi = data["ndbi"].astype(np.float32)
+            lst = data["lst"].astype(np.float32)  # Kelvin ground truth
+            lat = data["lat"].astype(np.float32) if "lat" in data.files else np.zeros_like(ndvi, dtype=np.float32)
+            lon = data["lon"].astype(np.float32) if "lon" in data.files else np.zeros_like(ndvi, dtype=np.float32)
+
+            # Season flag (matches training data schema)
+            if "season" in data.files:
+                season_raw = data["season"]
+                if isinstance(season_raw, np.ndarray) and season_raw.shape == ():
+                    season_raw = season_raw.item()
+                if isinstance(season_raw, bytes):
+                    season_raw = season_raw.decode("utf-8", errors="ignore")
+                season_str = str(season_raw).lower()
+            else:
+                season_str = tile_path.stem.lower()
+            is_summer = 1.0 if "summer" in season_str else 0.0
+
+            # WorldCover-based masks (match training path) with heuristic fallback
+            if (
+                worldcover_path is not None
+                and worldcover_path.exists()
+                and rasterio is not None
+                and "bounds" in data.files
+            ):
+                bounds = data["bounds"]
+                left, bottom, right, top = [float(x) for x in np.asarray(bounds).ravel()[:4]]
+                h, w = ndvi.shape
+                wc_resampled = np.empty((h, w), dtype=np.uint8)
+                with rasterio.open(worldcover_path) as src:
+                    dst_transform = rasterio.transform.from_bounds(left, bottom, right, top, w, h)
+                    reproject(
+                        source=rasterio.band(src, 1),
+                        destination=wc_resampled,
+                        src_transform=src.transform,
+                        src_crs=src.crs,
+                        dst_transform=dst_transform,
+                        dst_crs="EPSG:32643",
+                        resampling=Resampling.nearest,
+                    )
+                is_urban = (wc_resampled == 50).astype(np.float32)
+                is_water = (wc_resampled == 80).astype(np.float32)
+                is_vegetation = np.isin(wc_resampled, [10, 20, 30, 40]).astype(np.float32)
+            else:
+                is_urban = (ndbi > ndbi_threshold).astype(np.float32)
+                is_water = ((ndvi < 0.0) & (ndbi < 0.0)).astype(np.float32)
+                is_vegetation = (ndvi > 0.35).astype(np.float32)
+
+            # Feature order must match pilot_plan/02_train_xgb.py
+            X = np.stack(
+                [
+                    ndvi,
+                    ndbi,
+                    lat,
+                    lon,
+                    is_urban,
+                    is_water,
+                    is_vegetation,
+                    np.full_like(ndvi, is_summer, dtype=np.float32),
+                ],
+                axis=-1,
+            ).reshape(-1, 8)
+            y_k = lst.reshape(-1)
+
+            valid = np.all(np.isfinite(X), axis=1) & np.isfinite(y_k)
+            if not np.any(valid):
+                continue
+
+            # Model predicts Celsius (trained on lst_c); convert to Kelvin for comparison
+            y_pred_c = model.predict(X[valid])
+            y_pred_k = y_pred_c + 273.15
+
+            all_pred.append(y_pred_k.astype(np.float32))
+            all_gt.append(y_k[valid].astype(np.float32))
         except Exception as e:
             print(f"Error loading {tile_path}: {e}")
             continue
@@ -194,6 +280,7 @@ def level1_pixel_validation(
         "level": 1,
         "type": "pixel_wise",
         "metrics": metrics,
+        "model_path": str(model_path),
         "n_test_tiles": len(test_tiles),
         "n_train_tiles": len(train_tiles),
     }
@@ -443,6 +530,7 @@ def main():
     parser.add_argument("--modis-dir", help="Override MODIS directory")
     parser.add_argument("--aligned-dir", help="Override aligned tiles directory")
     parser.add_argument("--output", help="Override output directory")
+    parser.add_argument("--model", help="Path to trained XGBoost model (xgb_pilot.json)")
     parser.add_argument("--worldcover", help="Path to ESA WorldCover GeoTIFF")
     parser.add_argument("--ndbi-threshold", type=float, default=0.1,
                         help="NDBI threshold for urban classification (fallback)")
@@ -460,6 +548,7 @@ def main():
             landsat_dir=Path("data/processed"),
             predictions_dir=Path("data/processed/stacks/aligned"),
             output_dir=Path("data/validation"),
+            model_path=Path("models/xgb_pilot.json"),
         )
     
     # Override from args
@@ -469,6 +558,8 @@ def main():
         cfg.predictions_dir = Path(args.aligned_dir)
     if args.output:
         cfg.output_dir = Path(args.output)
+    if args.model:
+        cfg.model_path = Path(args.model)
     if args.worldcover:
         cfg.worldcover_path = Path(args.worldcover)
     cfg.ndbi_urban_threshold = args.ndbi_threshold
@@ -489,6 +580,9 @@ def main():
         l1_output = cfg.output_dir / "pixel_wise"
         results["level1"] = level1_pixel_validation(
             aligned_tiles=aligned_tiles,
+            model_path=cfg.model_path,
+            worldcover_path=cfg.worldcover_path,
+            ndbi_threshold=cfg.ndbi_urban_threshold,
             test_ratio=cfg.test_split_ratio,
             output_dir=l1_output,
         )
