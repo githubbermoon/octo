@@ -375,6 +375,8 @@ def compute_seasonal_modis_means(
     print("\nComputing MODIS seasonal means...")
     
     seasonal_data = {}
+    skipped_parse = 0
+    skipped_all_nan = 0
     
     modis_files = sorted(list(modis_dir.glob("*.tif")) + list(modis_dir.glob("*.tiff")))
     modis_files = [f for f in modis_files if f.stem.lower().startswith("modis")]
@@ -391,11 +393,13 @@ def compute_seasonal_modis_means(
         try:
             match = name_pattern.match(f.stem)
             if not match:
+                skipped_parse += 1
                 continue
 
             season = (match.group("season1") or match.group("season2") or "").lower()
             year = (match.group("year1") or match.group("year2") or "").strip()
             if season not in {"summer", "winter"} or not year:
+                skipped_parse += 1
                 continue
 
             key = f"{year}_{season}"
@@ -405,6 +409,11 @@ def compute_seasonal_modis_means(
                 # MODIS LST is often scaled; assume already in Kelvin
                 # Mask nodata (usually 0)
                 lst = np.where(lst == 0, np.nan, lst)
+
+            # Skip scenes with no finite pixels to avoid empty-slice warnings
+            if not np.isfinite(lst).any():
+                skipped_all_nan += 1
+                continue
 
             if key not in seasonal_data:
                 seasonal_data[key] = {"values": [], "files": []}
@@ -425,6 +434,11 @@ def compute_seasonal_modis_means(
             "std": float(np.nanstd(values)),
             "n_scenes": len(values),
         }
+
+    print(
+        f"MODIS parse summary: total={len(modis_files)}, used={sum(v['n_scenes'] for v in results.values())}, "
+        f"skipped_parse={skipped_parse}, skipped_all_nan={skipped_all_nan}"
+    )
     
     return results
 
