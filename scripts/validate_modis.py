@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -375,28 +376,41 @@ def compute_seasonal_modis_means(
     
     seasonal_data = {}
     
-    modis_files = list(modis_dir.glob("MODIS_*.tif")) + list(modis_dir.glob("MODIS_*.tiff"))
+    modis_files = sorted(list(modis_dir.glob("*.tif")) + list(modis_dir.glob("*.tiff")))
+    modis_files = [f for f in modis_files if f.stem.lower().startswith("modis")]
+
+    # Supports both:
+    #   MODIS_summer_2023_2023-04-15.tif
+    #   MODIS 2023 summer 2023-04-15_01.tif
+    name_pattern = re.compile(
+        r"^MODIS(?:[_\s]+(?:(?P<season1>summer|winter)[_\s]+(?P<year1>20\d{2})|(?P<year2>20\d{2})[_\s]+(?P<season2>summer|winter))).*$",
+        re.IGNORECASE,
+    )
     
     for f in tqdm(modis_files, desc="Processing MODIS"):
         try:
-            # Parse filename: MODIS_summer_2023_2023-04-15.tif
-            parts = f.stem.split("_")
-            if len(parts) >= 3:
-                season = parts[1]  # summer or winter
-                year = parts[2]    # 2023
-                key = f"{year}_{season}"
-                
-                with rasterio.open(f) as src:
-                    lst = src.read(1).astype(np.float32)
-                    # MODIS LST is often scaled; assume already in Kelvin
-                    # Mask nodata (usually 0)
-                    lst = np.where(lst == 0, np.nan, lst)
-                
-                if key not in seasonal_data:
-                    seasonal_data[key] = {"values": [], "files": []}
-                
-                seasonal_data[key]["values"].append(np.nanmean(lst))
-                seasonal_data[key]["files"].append(str(f.name))
+            match = name_pattern.match(f.stem)
+            if not match:
+                continue
+
+            season = (match.group("season1") or match.group("season2") or "").lower()
+            year = (match.group("year1") or match.group("year2") or "").strip()
+            if season not in {"summer", "winter"} or not year:
+                continue
+
+            key = f"{year}_{season}"
+
+            with rasterio.open(f) as src:
+                lst = src.read(1).astype(np.float32)
+                # MODIS LST is often scaled; assume already in Kelvin
+                # Mask nodata (usually 0)
+                lst = np.where(lst == 0, np.nan, lst)
+
+            if key not in seasonal_data:
+                seasonal_data[key] = {"values": [], "files": []}
+
+            seasonal_data[key]["values"].append(np.nanmean(lst))
+            seasonal_data[key]["files"].append(str(f.name))
                 
         except Exception as e:
             print(f"Error processing {f}: {e}")
